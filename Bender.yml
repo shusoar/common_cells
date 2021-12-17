@@ -24,7 +24,6 @@ sources:
   - src/binary_to_gray.sv
   - src/cb_filter_pkg.sv
   - src/cc_onehot.sv
-  - src/cdc_2phase.sv
   - src/cf_math_pkg.sv
   - src/clk_div.sv
   - src/delta_counter.sv
@@ -58,6 +57,7 @@ sources:
   - src/sync_wedge.sv
   - src/unread.sv
   # Level 1
+  - src/cdc_2phase_clearable.sv
   - src/addr_decode.sv
   - src/cb_filter.sv
   - src/cdc_fifo_2phase.sv
@@ -73,6 +73,7 @@ sources:
   - src/stream_fifo.sv
   - src/stream_fork_dynamic.sv
   # Level 2
+  - src/cdc_2phase.sv
   - src/cdc_fifo_gray.sv
   - src/fall_through_register.sv
   - src/id_queue.sv
