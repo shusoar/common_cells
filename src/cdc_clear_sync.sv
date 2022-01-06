@@ -1,10 +1,9 @@
 //-----------------------------------------------------------------------------
-// Title         : CDC Clear Signaling Synchronization
-//-----------------------------------------------------------------------------
-// File          : cdc_clear_propagator.sv
-// Author        : Manuel Eggimann  <meggimann@iis.ee.ethz.ch>
-// Created       : 22.12.2021
-//-----------------------------------------------------------------------------
+// Title : CDC Clear Signaling Synchronization
+// -----------------------------------------------------------------------------
+// File : cdc_clear_propagator.sv Author : Manuel Eggimann
+// <meggimann@iis.ee.ethz.ch> Created : 22.12.2021
+// -----------------------------------------------------------------------------
 // Description :
 //
 // This module is mainly used internally to synchronize the clear requests
@@ -38,31 +37,61 @@
 // pointers) are cleared. In this scenario, multiple signals change within the
 // same clock cycle and due to metastability we cannot be sure, that the other
 // side of the CDC sees the reset assertion before the first bits of e.g. the
-// write/read pointer start to swith to their reset state.
+// write/read pointer start to switch to their reset state. Care must also be
+// taken to handle the corner cases where both sides are reset simultaneously or
+// the case where one side leaves reset earlier than the other.
 //
 // How this Module Works
 //
-// This module implements the task of bi-directiona synchronization of all
-// synchronous clear or asynchronous reset requests from one side into the
-// respective other side of a CDC. It uses the above mentioned request
-// acknowledge handshaking for the clock domain crossing. However, it ensures
-// that the clear request arrives at the other side of the CDC (given that max
-// path delay of the crossing is constrained to min(t_src, t_dst)) before any
-// other signals changes state.
+// This module has two interfaces, the 'a' side and the 'b' side. Each side can
+// be triggered using the a/b_clear_i signal or (optionally) by the asynchronous
+// a/b_rst_ni. Once e.g. 'a' is triggered it will initiate a clear sequence that
+// first asserts an 'a_isolate_o' signal, waits until the external circuitry
+// acknowledges isolation using the 'a_isolate_ack_i'. Then the module asserts
+// the 'a_clear_o' signals before some cycles later, the isolate signal is
+// deasserted. This sequence ensures that no transactions can arrive to the CDC
+// while the state is cleared. Now the important part is, that those four phases
+// (asser isolate, assert clear, deassert clear, deassert isolate) are mirrored
+// on the other side ('b') in lock-step. The cdc_clear_sync module uses a
+// dedicated 4-phase handshaking CDC to transmit the current phase of the clear
+// sequence to the other domain. We use a 4-phase rather than a 2-phase CDC to
+// avoid the issues of one-sided async reset that might trigger spurious
+// transactions. Furthermore, the 4-phase CDC within this module is operated in
+// a special mode: DECOUPLED=0 ensures that there are no in-flight transactions.
+// The src side only consumes the item once the destination side acknowledged
+// the receiption. This property is required to transition through the phases in
+// lock-step. Furthermore, (SEND_RESET_MSG=1) will cause the src side of the
+// 4-phase CDC to immediately initiate the isolation phase in the dst domain
+// upon asynchronous reset regardless how long the async reset stays asserted or
+// whether the source clock is gated. Both sides of this module independently
+// generate the sequence signals as an initiator (triggered by the clear_i or
+// rst_ni signal) or receiver (trigerred for the other side). The or-ed version
+// of initiator and receiver are used to generate the actual a/b_isolate_o and
+// a/b_clear_o signal. That way, it doesn't matter wheter both sides
+// simulatenously trigger a clear sequence, proper sequencing is still
+// guaranteed.
 //
-// How to Use It
+// The time it takes to complete an entire clear sequence can be bounded as follows:
 //
-// Instantiate the module within your CDC and connect src/dst_clk_i, the
-// asyncrhonous src/dst_rst_ni and the synchronous src/dst_clear_i signals.
-// PARAMETRIZE the number of synchronization stages (for metastability
-// resoultion) to be equal or less than the latency of the CDC. E.g. if your CDC
-// uses 3 Sync Stages, parametrize this module with SYNC_STAGES <= 3! Your CDC
-// must implement a src/dst_clear_i port that SYNCHRONOUSLY clears all FFs on
-// the respective side. Connect the CDC's clear port to this module's
-// src/dst_clear_o port. Ensure, that neither side of the CDC accepts new
-// requests while the respective src/dst_clear_o signal is asserted. I.e. gate
-// the src_ready_o signal of your CDC with the src_clear_o signal from this
-// module.
+// t_clear <= 20*T+16*SYNC_STAGES*T, with T=max(T_a, T_b) (clock periods of src and dst)
+//
+// How to Use the Module
+//
+// Instantiate the module within your CDC and connect a/b_clk_i, the
+// asyncrhonous a/b_rst_ni and the synchronous a/b_clear_i signals. The 'a' and
+// 'b' port are entirely symetric so it doesn't matter whether you connect src
+// to 'a' or 'b'. If you enable support for async reset
+// (CLEAR_ON_ASYNC_RESET==1), parametrize the number of synchronization stages
+// (for metastability resolution) to be strictly less than the latency of the
+// CDC. E.g. if your CDC uses 3 (the minimum) sync stages, parametrize this
+// module with SYNC_STAGES < 2! Your CDC must implement a src/dst_clear_i port
+// that SYNCHRONOUSLY clears all FFs on the respective side. Connect the CDC's
+// src/dst_clear ports to this module's a/b_clear_o port. Once the a/b_isolate_o
+// signal is asserted, the respective CDC side (src/dst) must be isolated from
+// the outside world (i.e. must no longer accept any transaction on the src side
+// and cease presenting or even withdrawing data on the dst side). Once your CDC
+// side is isolated (depending on protocol this might take several cycles),
+// assert the a/b_isolate_ack_i signal.
 //
 // -----------------------------------------------------------------------------
 // Copyright (C) 2021 ETH Zurich, University of Bologna Copyright and related
@@ -314,8 +343,8 @@ module cdc_clear_sync_half
     .DECOUPLED(0), // Important! The CDC must not be in decoupled mode.
                    // Otherwise we will proceed to the next state without
                    // waiting for the new state to arrive on the other side.
-    .SEND_RESET_MSG(1), // Send the ISOLATE phase request immediately on async
-                        // reset
+    .SEND_RESET_MSG(CLEAR_ON_ASYNC_RESET), // Send the ISOLATE phase request immediately on async
+                                           // reset if async reset synchronization is enabled.
     .RESET_MSG(cdc_clear_sync_pkg::ISOLATE)
   ) i_state_transition_cdc_src(
     .clk_i,
