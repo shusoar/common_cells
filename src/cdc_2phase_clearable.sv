@@ -238,11 +238,13 @@ module cdc_2phase_src_clearable #(
   assign async_data_o = data_src_q;
 
 // Assertions
-// pragma translate_off
 `ifndef VERILATOR
+  // pragma translate_off
   no_clear_and_request: assume property (
      @(posedge clk_i) disable iff(~rst_ni) (clear_i |-> ~valid_i))
     else $fatal(1, "No request allowed while clear_i is asserted.");
+
+  // pragma translate_on
 `endif
 
 endmodule
