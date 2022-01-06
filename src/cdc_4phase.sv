@@ -298,7 +298,7 @@ module cdc_4phase_dst #(
     end
   end
 
-  if (DECOUPLED) begin
+  if (DECOUPLED) begin : gen_decoupled
     // Decouple the output from the asynchronous data bus without introducing
     // additional latency by inserting a spill register
     spill_register #(
@@ -314,7 +314,7 @@ module cdc_4phase_dst #(
       .ready_i,
       .data_o
     );
-  end else begin
+  end else begin : gen_not_decoupled
     assign valid_o      = data_valid;
     assign output_ready = ready_i;
     assign data_o       = async_data_i;

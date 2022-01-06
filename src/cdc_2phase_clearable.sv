@@ -68,11 +68,12 @@ module cdc_2phase_clearable #(
   (* dont_touch = "true" *) logic async_ack;
   (* dont_touch = "true" *) T async_data;
 
-  if (CLEAR_ON_ASYNC_RESET) begin
+  if (CLEAR_ON_ASYNC_RESET) begin : gen_elaboration_assertion
     if (SYNC_STAGES < 3)
-      $error("The clearable 2-phase CDC with async reset synchronization requires at least 3 synchronizer stages for the FIFO.");
-  end else begin
-    if (SYNC_STAGES < 2) begin
+      $error("The clearable 2-phase CDC with async reset",
+             "synchronization requires at least 3 synchronizer stages for the FIFO.");
+  end else begin : gen_elaboration_assertion
+    if (SYNC_STAGES < 2) begin : gen_elaboration_assertion
       $error("A minimum of 2 synchronizer stages is required for proper functionality.");
     end
   end
@@ -169,8 +170,12 @@ module cdc_2phase_clearable #(
     @(posedge clk) $rose(clr_req) |-> !clear_pending;
   endproperty
 
-  no_src_clear_while_clear_pending: assume property (no_clear_while_clear_pending(src_clk_i, src_clear_i, src_clear_pending_o));
-  no_dst_clear_while_clear_pending: assume property (no_clear_while_clear_pending(dst_clk_i, dst_clear_i, dst_clear_pending_o));
+  no_src_clear_while_clear_pending: assume property(
+    no_clear_while_clear_pending(src_clk_i, src_clear_i, src_clear_pending_o)
+  );
+  no_dst_clear_while_clear_pending: assume property(
+    no_clear_while_clear_pending(dst_clk_i, dst_clear_i, dst_clear_pending_o)
+  );
 
 `endif
 

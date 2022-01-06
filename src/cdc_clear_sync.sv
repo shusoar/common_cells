@@ -225,7 +225,15 @@ module cdc_clear_sync_half
 
   //---------------------- Initiator Side ----------------------
   // Sends clear sequence state transitions to the other side.
-   typedef enum               logic[2:0] {IDLE, ISOLATE, WAIT_PHASE_ACK, WAIT_ISOLATE_ACK, CLEAR, POST_CLEAR, FINISHED} initiator_state_e;
+   typedef enum logic[2:0] {
+     IDLE,
+     ISOLATE,
+     WAIT_PHASE_ACK,
+     WAIT_ISOLATE_ACK,
+     CLEAR,
+     POST_CLEAR,
+     FINISHED
+  } initiator_state_e;
   initiator_state_e initiator_state_d, initiator_state_q;
 
   // The current phase of the clear sequence, sent to the other side using a

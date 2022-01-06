@@ -134,17 +134,21 @@ module cdc_fifo_gray_clearable #(
   logic [LOG_DEPTH:0]  async_wptr;
   logic [LOG_DEPTH:0]  async_rptr;
 
-  if (CLEAR_ON_ASYNC_RESET) begin
+  if (CLEAR_ON_ASYNC_RESET) begin : gen_elaboration_assertion
     if (SYNC_STAGES < 3)
-      $error("The clearable CDC FIFO with async reset synchronization requires at least 3 synchronizer stages for the FIFO.");
-  end else begin
-    if (SYNC_STAGES < 2) begin
+      $error("The clearable CDC FIFO with async reset synchronization requires at least",
+             "3 synchronizer stages for the FIFO.");
+  end else begin : gen_elaboration_assertion
+    if (SYNC_STAGES < 2) begin : gen_elaboration_assertion
       $error("A minimum of 2 synchronizer stages is required for proper functionality.");
     end
   end
 
-  if (2*SYNC_STAGES > 2**LOG_DEPTH) begin
-    $warning("The FIFOs depth of %0d is insufficient to completely hide the latency of %0d SYNC_STAGES. The FIFO will stall in the case where f_src ~= f_dst. It is reccomended to increase the FIFO's log depth to at least %0d.", 2**LOG_DEPTH, SYNC_STAGES, $clog2(2*SYNC_STAGES));
+  if (2*SYNC_STAGES > 2**LOG_DEPTH) begin : gen_elaboration_assertion2
+    $warning("The FIFOs depth of %0d is insufficient to completely hide the latency of",
+             " %0d SYNC_STAGES. The FIFO will stall in the case where f_src ~= f_dst. ",
+             "It is reccomended to increase the FIFO's log depth to at least %0d.",
+             2**LOG_DEPTH, SYNC_STAGES, $clog2(2*SYNC_STAGES));
   end
 
 
