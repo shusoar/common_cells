@@ -17,7 +17,7 @@ module cdc_fifo_clearable_tb;
   parameter bit INJECT_SRC_STALLS = 0;
   parameter bit INJECT_DST_STALLS = 0;
   parameter int UNTIL = 100000;
-  parameter int DEPTH = 0;
+  parameter int DEPTH = 3;
   parameter int CLEAR_PPM = 2000;
 
   time tck_src       = 10ns;
@@ -138,7 +138,7 @@ module cdc_fifo_clearable_tb;
       // in the mailbox as stale. Some of them might still be received
       // downstream until the clear request propagated to the other side.
       clear_cdc    = $urandom_range(0,1e6) < CLEAR_PPM;
-      if (!clear_cdc || src_clear_pending_o || dst_clear_pending_o) begin
+      if (!clear_cdc || src_clear_pending_o) begin
         stimulus       = $random();
         item.data      = stimulus;
         item.is_stale  = 1'b0;
@@ -209,7 +209,7 @@ module cdc_fifo_clearable_tb;
       // DEPTH clock cycle for the clear request to propagate and then clear the
       // item queue.
       clear_cdc    = $urandom_range(0,1e6) < CLEAR_PPM;
-      if (!clear_cdc || dst_clear_pending_o || src_clear_pending_o) begin
+      if (!clear_cdc || dst_clear_pending_o) begin
         dst_ready_i <= #(tck_dst*0.2) 1;
         dst_cycle_start();
         while (!dst_valid_o && !src_done) begin
@@ -266,8 +266,9 @@ module cdc_fifo_clearable_tb;
           dst_cycle_end();
           dst_rst_ni <= #(tck_dst*0.2) 1'b1;
         end
-        // Wait for exactly DEPTH src clock cycles for the clear request to
+        // Wait for exactly 1 dst clock cycle and DEPTH src clock cycles for the clear request to
         // propagate
+        @(posedge dst_clk_i);
         repeat(DEPTH) @(posedge src_clk_i);
         // Now clear the item queue
         num_sent-=dst_mbox.size();

@@ -96,9 +96,12 @@ module cdc_fifo_gray_clearable #(
   /// The FIFO's depth given as 2**LOG_DEPTH.
   parameter int LOG_DEPTH = 3,
   /// The number of synchronization registers to insert on the async pointers
-  /// between the FIFOs. The clear synchronizer must use one stage less than the
-  /// FIFO path to work reliably.
-  parameter int SYNC_STAGES = 3
+  /// between the FIFOs. If CLEAR_ON_ASYNC reset is enabled, we need at least 4
+  /// synchronizer stages to provide the clear synchronizer lower latency than
+  /// the async reset. I.e. if CLEAR_ON_ASYNC_RESET==1 -> SYNC_STAGES >= 4 else
+  /// SYNC_STAGES >= 2.
+  parameter int SYNC_STAGES = 3,
+  parameter int CLEAR_ON_ASYNC_RESET = 1
 ) (
   input  logic src_rst_ni,
   input  logic src_clk_i,
@@ -119,20 +122,32 @@ module cdc_fifo_gray_clearable #(
 
   logic        s_src_clear;
   logic        s_src_ready;
+  logic        s_src_isolate_req;
+  logic        s_src_isolate_ack_q;
   logic        s_dst_clear;
   logic        s_dst_valid;
+  logic        s_dst_isolate_req;
+  logic        s_dst_isolate_ack_q;
+
 
   T [2**LOG_DEPTH-1:0] async_data;
   logic [LOG_DEPTH:0]  async_wptr;
   logic [LOG_DEPTH:0]  async_rptr;
 
-  if (SYNC_STAGES < 3) begin
-    $error("The clearable CDC FIFO requires at least 3 synchronizer stages for the FIFO.");
+  if (CLEAR_ON_ASYNC_RESET) begin
+    if (SYNC_STAGES < 3)
+      $error("The clearable CDC FIFO with async reset synchronization requires at least 3 synchronizer stages for the FIFO.");
+  end else begin
+    if (SYNC_STAGES < 2) begin
+      $error("A minimum of 2 synchronizer stages is required for proper functionality.");
+    end
   end
 
   if (2*SYNC_STAGES > 2**LOG_DEPTH) begin
-    $warning("The FIFOs depth of %0d is insufficient to completely hide the latency of %0d SYNC_STAGES. The FIFO will stall in the case where f_src ~= f_dst. It is reccomended to increase the FIFO's log depth to at least %0d.", LOG_DEPTH, SYNC_STAGES, $clog2(2*SYNC_STAGES));
+    $warning("The FIFOs depth of %0d is insufficient to completely hide the latency of %0d SYNC_STAGES. The FIFO will stall in the case where f_src ~= f_dst. It is reccomended to increase the FIFO's log depth to at least %0d.", 2**LOG_DEPTH, SYNC_STAGES, $clog2(2*SYNC_STAGES));
   end
+
+
 
   cdc_fifo_gray_src_clearable #(
     .T           ( T           ),
@@ -141,17 +156,17 @@ module cdc_fifo_gray_clearable #(
   ) i_src (
     .src_rst_ni,
     .src_clk_i,
-    .src_clear_i ( s_src_clear                ),
+    .src_clear_i ( s_src_clear                      ),
     .src_data_i,
-    .src_valid_i ( src_valid_i & !s_src_clear ),
-    .src_ready_o ( s_src_ready                ),
+    .src_valid_i ( src_valid_i & !s_src_isolate_req ),
+    .src_ready_o ( s_src_ready                      ),
 
     (* async *) .async_data_o ( async_data ),
     (* async *) .async_wptr_o ( async_wptr ),
     (* async *) .async_rptr_i ( async_rptr )
   );
 
-  assign src_ready_o = s_src_ready & !s_src_clear;
+  assign src_ready_o = s_src_ready & !s_src_isolate_req;
 
   cdc_fifo_gray_dst_clearable #(
     .T           ( T           ),
@@ -160,48 +175,66 @@ module cdc_fifo_gray_clearable #(
   ) i_dst (
     .dst_rst_ni,
     .dst_clk_i,
-    .dst_clear_i ( s_dst_clear                ),
+    .dst_clear_i ( s_dst_clear                      ),
     .dst_data_o,
-    .dst_valid_o ( s_dst_valid                ),
-    .dst_ready_i ( dst_ready_i & !s_dst_clear ),
+    .dst_valid_o ( s_dst_valid                      ),
+    .dst_ready_i ( dst_ready_i & !s_dst_isolate_req ),
 
     (* async *) .async_data_i ( async_data ),
     (* async *) .async_wptr_i ( async_wptr ),
     (* async *) .async_rptr_o ( async_rptr )
   );
 
-  assign dst_valid_o = s_dst_valid & !s_dst_clear;
+  assign dst_valid_o = s_dst_valid & !s_dst_isolate_req;
 
   // Synchronize the clear and reset signaling in both directions (see header of
   // the cdc_clear_sync module for more details.)
   cdc_clear_sync #(
     .SYNC_STAGES(SYNC_STAGES-1)
   ) i_clear_sync (
-    .a_clk_i   ( src_clk_i   ),
-    .a_rst_ni  ( src_rst_ni  ),
-    .a_clear_i ( src_clear_i ),
-    .a_clear_o ( s_src_clear ),
-    .b_clk_i   ( dst_clk_i   ),
-    .b_rst_ni  ( dst_rst_ni  ),
-    .b_clear_i ( dst_clear_i ),
-    .b_clear_o ( s_dst_clear )
+    .a_clk_i         ( src_clk_i           ),
+    .a_rst_ni        ( src_rst_ni          ),
+    .a_clear_i       ( src_clear_i         ),
+    .a_clear_o       ( s_src_clear         ),
+    .a_isolate_o     ( s_src_isolate_req   ),
+    .a_isolate_ack_i ( s_src_isolate_ack_q ),
+    .b_clk_i         ( dst_clk_i           ),
+    .b_rst_ni        ( dst_rst_ni          ),
+    .b_clear_i       ( dst_clear_i         ),
+    .b_clear_o       ( s_dst_clear         ),
+    .b_isolate_o     ( s_dst_isolate_req   ),
+    .b_isolate_ack_i ( s_dst_isolate_ack_q )
   );
 
-  assign src_clear_pending_o = s_src_clear;
-  assign dst_clear_pending_o = s_dst_clear;
+  // Just delay the isolate request by one cycle. We can ensure isolation within
+  // one cycle by just deasserting valid and ready signals on both sides of the CDC.
+  always_ff @(posedge src_clk_i, negedge src_rst_ni) begin
+    if (!src_rst_ni) begin
+      s_src_isolate_ack_q <= 1'b0;
+    end else begin
+      s_src_isolate_ack_q <= s_src_isolate_req;
+    end
+  end
+
+  always_ff @(posedge dst_clk_i, negedge dst_rst_ni) begin
+    if (!dst_rst_ni) begin
+      s_dst_isolate_ack_q <= 1'b0;
+    end else begin
+      s_dst_isolate_ack_q <= s_dst_isolate_req;
+    end
+  end
+
+
+  assign src_clear_pending_o = s_src_isolate_req; // The isolate signal stays
+                                                  // asserted during the whole
+                                                  // clear sequence.
+  assign dst_clear_pending_o = s_dst_isolate_req;
 
   // Check the invariants.
   // pragma translate_off
   `ifndef VERILATOR
   initial assert(LOG_DEPTH > 0);
   initial assert(SYNC_STAGES >= 2);
-
-  property no_clear_while_clear_pending(clk, clr_req, clear_pending);
-    @(posedge clk) $rose(clr_req) |-> !clear_pending;
-  endproperty
-
-  no_src_clear_while_clear_pending: assume property (no_clear_while_clear_pending(src_clk_i, src_clear_i, src_clear_pending_o));
-  no_dst_clear_while_clear_pending: assume property (no_clear_while_clear_pending(dst_clk_i, dst_clear_i, dst_clear_pending_o));
   `endif
   // pragma translate_on
 

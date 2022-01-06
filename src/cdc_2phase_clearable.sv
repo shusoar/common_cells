@@ -35,7 +35,8 @@
 
 module cdc_2phase_clearable #(
   parameter type T = logic,
-  parameter int unsigned SYNC_STAGES = 3
+  parameter int unsigned SYNC_STAGES = 3,
+  parameter int CLEAR_ON_ASYNC_RESET = 1
 )(
   input  logic src_rst_ni,
   input  logic src_clk_i,
@@ -55,35 +56,45 @@ module cdc_2phase_clearable #(
 );
   logic        s_src_clear;
   logic        s_src_ready;
+  logic        s_src_isolate_req;
+  logic        s_src_isolate_ack_q;
   logic        s_dst_clear;
   logic        s_dst_valid;
+  logic        s_dst_isolate_req;
+  logic        s_dst_isolate_ack_q;
 
   // Asynchronous handshake signals between the CDCs
   (* dont_touch = "true" *) logic async_req;
   (* dont_touch = "true" *) logic async_ack;
   (* dont_touch = "true" *) T async_data;
 
-  if (SYNC_STAGES < 3) begin
-    $error("The clearable CDC FIFO requires at least 3 synchronizer stages for the FIFO.");
+  if (CLEAR_ON_ASYNC_RESET) begin
+    if (SYNC_STAGES < 3)
+      $error("The clearable 2-phase CDC with async reset synchronization requires at least 3 synchronizer stages for the FIFO.");
+  end else begin
+    if (SYNC_STAGES < 2) begin
+      $error("A minimum of 2 synchronizer stages is required for proper functionality.");
+    end
   end
+
 
   // The sender in the source domain.
   cdc_2phase_src_clearable #(
     .T           ( T           ),
     .SYNC_STAGES ( SYNC_STAGES )
   ) i_src (
-    .rst_ni       ( src_rst_ni                 ),
-    .clk_i        ( src_clk_i                  ),
-    .clear_i      ( s_src_clear                ),
-    .data_i       ( src_data_i                 ),
-    .valid_i      ( src_valid_i & !s_src_clear ),
-    .ready_o      ( s_src_ready                ),
-    .async_req_o  ( async_req                  ),
-    .async_ack_i  ( async_ack                  ),
-    .async_data_o ( async_data                 )
+    .rst_ni       ( src_rst_ni                       ),
+    .clk_i        ( src_clk_i                        ),
+    .clear_i      ( s_src_clear                      ),
+    .data_i       ( src_data_i                       ),
+    .valid_i      ( src_valid_i & !s_src_isolate_req ),
+    .ready_o      ( s_src_ready                      ),
+    .async_req_o  ( async_req                        ),
+    .async_ack_i  ( async_ack                        ),
+    .async_data_o ( async_data                       )
   );
 
-  assign src_ready_o = s_src_ready & !s_src_clear;
+  assign src_ready_o = s_src_ready & !s_src_isolate_req;
 
 
   // The receiver in the destination domain.
@@ -91,36 +102,62 @@ module cdc_2phase_clearable #(
     .T           ( T           ),
     .SYNC_STAGES ( SYNC_STAGES )
   ) i_dst (
-    .rst_ni       ( dst_rst_ni                 ),
-    .clk_i        ( dst_clk_i                  ),
-    .clear_i      ( s_dst_clear                ),
-    .data_o       ( dst_data_o                 ),
-    .valid_o      ( s_dst_valid                ),
-    .ready_i      ( dst_ready_i & !s_dst_clear ),
-    .async_req_i  ( async_req                  ),
-    .async_ack_o  ( async_ack                  ),
-    .async_data_i ( async_data                 )
+    .rst_ni       ( dst_rst_ni                       ),
+    .clk_i        ( dst_clk_i                        ),
+    .clear_i      ( s_dst_clear                      ),
+    .data_o       ( dst_data_o                       ),
+    .valid_o      ( s_dst_valid                      ),
+    .ready_i      ( dst_ready_i & !s_dst_isolate_req ),
+    .async_req_i  ( async_req                        ),
+    .async_ack_o  ( async_ack                        ),
+    .async_data_i ( async_data                       )
   );
 
-  assign dst_valid_o = s_dst_valid & !s_dst_clear;
+  assign dst_valid_o = s_dst_valid & !s_dst_isolate_req;
 
   // Synchronize the clear and reset signaling in both directions (see header of
   // the cdc_clear_sync module for more details.)
   cdc_clear_sync #(
     .SYNC_STAGES(SYNC_STAGES-1)
   ) i_clear_sync (
-    .a_clk_i   ( src_clk_i   ),
-    .a_rst_ni  ( src_rst_ni  ),
-    .a_clear_i ( src_clear_i ),
-    .a_clear_o ( s_src_clear ),
-    .b_clk_i   ( dst_clk_i   ),
-    .b_rst_ni  ( dst_rst_ni  ),
-    .b_clear_i ( dst_clear_i ),
-    .b_clear_o ( s_dst_clear )
+    .a_clk_i         ( src_clk_i           ),
+    .a_rst_ni        ( src_rst_ni          ),
+    .a_clear_i       ( src_clear_i         ),
+    .a_clear_o       ( s_src_clear         ),
+    .a_isolate_o     ( s_src_isolate_req   ),
+    .a_isolate_ack_i ( s_src_isolate_ack_q ),
+    .b_clk_i         ( dst_clk_i           ),
+    .b_rst_ni        ( dst_rst_ni          ),
+    .b_clear_i       ( dst_clear_i         ),
+    .b_clear_o       ( s_dst_clear         ),
+    .b_isolate_o     ( s_dst_isolate_req   ),
+    .b_isolate_ack_i ( s_dst_isolate_ack_q )
   );
 
-  assign src_clear_pending_o = s_src_clear;
-  assign dst_clear_pending_o = s_dst_clear;
+  // Just delay the isolate request by one cycle. We can ensure isolation within
+  // one cycle by just deasserting valid and ready signals on both sides of the CDC.
+  always_ff @(posedge src_clk_i, negedge src_rst_ni) begin
+    if (!src_rst_ni) begin
+      s_src_isolate_ack_q <= 1'b0;
+    end else begin
+      s_src_isolate_ack_q <= s_src_isolate_req;
+    end
+  end
+
+  always_ff @(posedge dst_clk_i, negedge dst_rst_ni) begin
+    if (!dst_rst_ni) begin
+      s_dst_isolate_ack_q <= 1'b0;
+    end else begin
+      s_dst_isolate_ack_q <= s_dst_isolate_req;
+    end
+  end
+
+
+  assign src_clear_pending_o = s_src_isolate_req; // The isolate signal stays
+  // asserted during the whole
+  // clear sequence.
+  assign dst_clear_pending_o = s_dst_isolate_req;
+
 
 `ifndef VERILATOR
 
