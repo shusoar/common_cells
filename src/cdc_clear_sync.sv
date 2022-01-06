@@ -210,18 +210,29 @@ module cdc_clear_sync_half
 
   // How this module works:
 
-  // FSM controls the handshaking of the initiator side i.e. the logic that
-  // controls handshaking when a clear is initiated in this clock domain. The
-  // FSM transitions through 3 phases during a clear event. In the ISOLATE
-  // phase, the freeze signal is asserted and the connected CDCs are expected to
-  // block all further interactions with the outside world with the next clock
-  // cycle. In the CLEAR phase, the clear signal is asserted which resets the
-  // internal state of the CDC while keeping the freeze signal asserted. In the
-  // POST_CLEAR phase, the freeze signal is deasserted to continue normal operation.
-  // The FSM uses a dedicated 4phase handshaking CDC to transition between the
-  // phases in lock-step and transmits the current state to the other domain to
-  // avoid issues if the other domain is reset asynchronously while a clear
-  // procedure is pending.
+  // The module is split into two parts. The initiator part consists of an FSM
+  // that is triggered by the clear_i signal and transitions through reset
+  // sequence. During those transitions, the `initiator_isolate_out` and
+  // `initiator_clear_out` signals are asserted appropriately.
+
+  // The receiver part receives the state transitions from the other clock
+  // domain (initiator part of the `cdc_clear_sync_half` instance in the other
+  // clock domain) and asserts the `receiver_isolate_out` and
+  // `receiver_clear_out` appropriately (considering the `isolate_ack_i`
+  // signal).
+
+  // In both, the initiator and the receiver part, the respective FSM
+  // transitions through 4 phases. In the ISOLATE phase, the isolate signal is
+  // asserted and the connected CDCs are expected to block all further
+  // interactions with the outside world and acknowledge the isolation with the
+  // isolate_ack_i signal. In the CLEAR phase, the clear signal is asserted
+  // which resets the internal state of the CDC while keeping the isolate signal
+  // asserted. In the POST_CLEAR phase, the clear signal is deasserted. Finally,
+  // when returning to the IDLE phase, the isolate signal is deasserted to
+  // continue normal operation. The FSM uses a dedicated 4-phase handshaking CDC
+  // to transition between the phases in lock-step and transmits the current
+  // state to the other domain to avoid issues if the other domain is reset
+  // asynchronously while a clear procedure is pending.
 
   //---------------------- Initiator Side ----------------------
   // Sends clear sequence state transitions to the other side.
