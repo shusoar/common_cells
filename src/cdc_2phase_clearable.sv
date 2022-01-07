@@ -17,17 +17,34 @@
 /// CONSTRAINT: Requires max_delay of min_period(src_clk_i, dst_clk_i) through
 /// the paths async_req, async_ack, async_data.
 ///
-/// Reset/Clear Requirements: In contrast to the cdc_2phase version without
-/// clear signal, it is legal to one-sidedly async. reset or clear either the
-/// source or the destination side. This will cause the module to issue a clear
-/// request to the respective other domain to ensure that the CDC module stays
-/// in a consistent state. The module contains request-acknowledge handshaking
-/// logic to ensure that the clear signal is held asserted until it is
-/// acknowledged in the other domain. The src/dst_clear_i can be used to
-/// initiate a functional, synchronous reset in either domain. It should be
-/// asserted synchronously for 1 clock cycle of the respective clock domain.
-/// While a clear operation is pending (as indicated src/dst_clear_pending_o)
-/// the respective src/dst_clear_i must stay deasserted (low).
+///
+/// Reset Behavior:
+///
+/// In contrast to the cdc_2phase version without clear signal, this module
+/// supports one-sided warm resets (asynchronously and synchronously). The way
+/// this is implemented is described in more detail in the cdc_clear_sync
+/// module. To summarize a synchronous clear request i.e. src/dst_clear_i will
+/// cause the respective other clock domain to reset as well without introducing
+/// any spurious transactions. This is acomplished by an internal module
+/// (cdc_clear_sync) the starts a reset sequence on both sides of the CDC in
+/// lock-step that first isolates the CDC from the outside world and then resets
+/// it. The reset sequencer provides the following behavior:
+/// 1. There are no spurious invalid or duplicated transactions regardless how
+///    the individual sides are reset (can also happen roughly simultaneosly)
+/// 2. The CDC becomes unready at the src side in the next cycle after
+///    synchronous reset request until the reset sequence is completed. A currently
+///    pending transactions might still complete (if the dst accepts at the
+///    exact time the reset is request on the src die).
+/// 3. During the reset sequence the dst might withdraw the valid signal. This
+///    might violate higher level protocols. If you need this feature you would
+///    have to path the existing implementation to wait with the isolate_ack
+///    assertion until all open handshakes were acknowledged.
+/// 4. If the parameter CLEAR_ON_ASYNC_RESET is enabled, the same behavior as
+///    above is also valid for asynchronous resets on either side. However, this
+///    increases the minimum number of synchronization stages (SYNC_STAGES
+///    parameter) from 2 to 3 (read the cdc_clear_sync header to figure out
+///    why).
+///
 ///
 /* verilator lint_off DECLFILENAME */
 
@@ -54,11 +71,13 @@ module cdc_2phase_clearable #(
   output logic dst_valid_o,
   input  logic dst_ready_i
 );
-  logic        s_src_clear;
+  logic        s_src_clear_req;
+  logic        s_src_clear_ack_q;
   logic        s_src_ready;
   logic        s_src_isolate_req;
   logic        s_src_isolate_ack_q;
-  logic        s_dst_clear;
+  logic        s_dst_clear_req;
+  logic        s_dst_clear_ack_q;
   logic        s_dst_valid;
   logic        s_dst_isolate_req;
   logic        s_dst_isolate_ack_q;
@@ -86,7 +105,7 @@ module cdc_2phase_clearable #(
   ) i_src (
     .rst_ni       ( src_rst_ni                       ),
     .clk_i        ( src_clk_i                        ),
-    .clear_i      ( s_src_clear                      ),
+    .clear_i      ( s_src_clear_req                      ),
     .data_i       ( src_data_i                       ),
     .valid_i      ( src_valid_i & !s_src_isolate_req ),
     .ready_o      ( s_src_ready                      ),
@@ -105,7 +124,7 @@ module cdc_2phase_clearable #(
   ) i_dst (
     .rst_ni       ( dst_rst_ni                       ),
     .clk_i        ( dst_clk_i                        ),
-    .clear_i      ( s_dst_clear                      ),
+    .clear_i      ( s_dst_clear_req                      ),
     .data_o       ( dst_data_o                       ),
     .valid_o      ( s_dst_valid                      ),
     .ready_i      ( dst_ready_i & !s_dst_isolate_req ),
@@ -124,13 +143,15 @@ module cdc_2phase_clearable #(
     .a_clk_i         ( src_clk_i           ),
     .a_rst_ni        ( src_rst_ni          ),
     .a_clear_i       ( src_clear_i         ),
-    .a_clear_o       ( s_src_clear         ),
+    .a_clear_o       ( s_src_clear_req     ),
+    .a_clear_ack_i   ( s_src_clear_ack_q   ),
     .a_isolate_o     ( s_src_isolate_req   ),
     .a_isolate_ack_i ( s_src_isolate_ack_q ),
     .b_clk_i         ( dst_clk_i           ),
     .b_rst_ni        ( dst_rst_ni          ),
     .b_clear_i       ( dst_clear_i         ),
-    .b_clear_o       ( s_dst_clear         ),
+    .b_clear_o       ( s_dst_clear_req     ),
+    .b_clear_ack_i   ( s_dst_clear_ack_q   ),
     .b_isolate_o     ( s_dst_isolate_req   ),
     .b_isolate_ack_i ( s_dst_isolate_ack_q )
   );
@@ -140,16 +161,20 @@ module cdc_2phase_clearable #(
   always_ff @(posedge src_clk_i, negedge src_rst_ni) begin
     if (!src_rst_ni) begin
       s_src_isolate_ack_q <= 1'b0;
+      s_src_clear_ack_q   <= 1'b0;
     end else begin
       s_src_isolate_ack_q <= s_src_isolate_req;
+      s_src_clear_ack_q   <= s_src_clear_req;
     end
   end
 
   always_ff @(posedge dst_clk_i, negedge dst_rst_ni) begin
     if (!dst_rst_ni) begin
       s_dst_isolate_ack_q <= 1'b0;
+      s_dst_clear_ack_q   <= 1'b0;
     end else begin
       s_dst_isolate_ack_q <= s_dst_isolate_req;
+      s_dst_clear_ack_q   <= s_dst_clear_req;
     end
   end
 

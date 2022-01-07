@@ -122,6 +122,7 @@ module cdc_clear_sync
   input logic  a_rst_ni,
   input logic  a_clear_i,
   output logic a_clear_o,
+  input logic a_clear_ack_i,
   output logic a_isolate_o,
   input logic  a_isolate_ack_i,
   // Side B (both sides are symmetric)
@@ -129,6 +130,7 @@ module cdc_clear_sync
   input logic  b_rst_ni,
   input logic  b_clear_i,
   output logic b_clear_o,
+  input logic  b_clear_ack_i,
   output logic b_isolate_o,
   input logic  b_isolate_ack_i
 );
@@ -150,6 +152,7 @@ module cdc_clear_sync
     .rst_ni             ( a_rst_ni             ),
     .clear_i            ( a_clear_i            ),
     .clear_o            ( a_clear_o            ),
+    .clear_ack_i        ( a_clear_ack_i        ),
     .isolate_o          ( a_isolate_o          ),
     .isolate_ack_i      ( a_isolate_ack_i      ),
     (* async *) .async_next_phase_o ( async_a2b_next_phase ),
@@ -168,6 +171,7 @@ module cdc_clear_sync
     .rst_ni             ( b_rst_ni             ),
     .clear_i            ( b_clear_i            ),
     .clear_o            ( b_clear_o            ),
+    .clear_ack_i        ( b_clear_ack_i        ),
     .isolate_o          ( b_isolate_o          ),
     .isolate_ack_i      ( b_isolate_ack_i      ),
     (* async *) .async_next_phase_o ( async_b2a_next_phase ),
@@ -198,6 +202,7 @@ module cdc_clear_sync_half
   output logic               isolate_o,
   input logic                isolate_ack_i,
   output logic               clear_o,
+  input logic                clear_ack_i,
   // Asynchronous clear sequence hanshaking
   output clear_seq_phase_e   async_next_phase_o,
   output logic               async_req_o,
@@ -236,12 +241,14 @@ module cdc_clear_sync_half
 
   //---------------------- Initiator Side ----------------------
   // Sends clear sequence state transitions to the other side.
-   typedef enum logic[2:0] {
+   typedef enum logic[3:0] {
      IDLE,
      ISOLATE,
-     WAIT_PHASE_ACK,
+     WAIT_ISOLATE_PHASE_ACK,
      WAIT_ISOLATE_ACK,
      CLEAR,
+     WAIT_CLEAR_PHASE_ACK,
+     WAIT_CLEAR_ACK,
      POST_CLEAR,
      FINISHED
   } initiator_state_e;
@@ -279,7 +286,7 @@ module cdc_clear_sync_half
         end else if (initiator_phase_transition_ack) begin
           initiator_state_d = WAIT_ISOLATE_ACK;
         end else if (isolate_ack_i) begin
-          initiator_state_d = WAIT_PHASE_ACK;
+          initiator_state_d = WAIT_ISOLATE_PHASE_ACK;
         end
       end
 
@@ -292,7 +299,7 @@ module cdc_clear_sync_half
         end
       end
 
-      WAIT_PHASE_ACK: begin
+      WAIT_ISOLATE_PHASE_ACK: begin
         initiator_phase_transition_req = 1'b1;
         initiator_clear_seq_phase      = CLEAR_PHASE_ISOLATE;
         initiator_isolate_out          = 1'b1;
@@ -307,6 +314,29 @@ module cdc_clear_sync_half
         initiator_clear_out            = 1'b1;
         initiator_phase_transition_req = 1'b1;
         initiator_clear_seq_phase      = CLEAR_PHASE_CLEAR;
+        if (initiator_phase_transition_ack && clear_ack_i) begin
+          initiator_state_d = POST_CLEAR;
+        end else if (initiator_phase_transition_ack) begin
+          initiator_state_d = WAIT_CLEAR_ACK;
+        end else if (clear_ack_i) begin
+          initiator_state_d = WAIT_CLEAR_PHASE_ACK;
+        end
+      end
+
+      WAIT_CLEAR_ACK: begin
+        initiator_isolate_out     = 1'b1;
+        initiator_clear_out       = 1'b1;
+        initiator_clear_seq_phase = CLEAR_PHASE_CLEAR;
+        if (clear_ack_i) begin
+          initiator_state_d = POST_CLEAR;
+        end
+      end
+
+      WAIT_CLEAR_PHASE_ACK: begin
+        initiator_phase_transition_req = 1'b1;
+        initiator_clear_seq_phase      = CLEAR_PHASE_CLEAR;
+        initiator_isolate_out          = 1'b1;
+        initiator_clear_out            = 1'b1;
         if (initiator_phase_transition_ack) begin
           initiator_state_d = POST_CLEAR;
         end
@@ -437,7 +467,8 @@ module cdc_clear_sync_half
         CLEAR_PHASE_CLEAR: begin
           receiver_clear_out   = 1'b1;
           receiver_isolate_out = 1'b1;
-          receiver_phase_ack   = 1'b1;
+          // Wait for the clear to be acknowledged before ack'ing the phase
+          receiver_phase_ack   = clear_ack_i;
         end
 
         CLEAR_PHASE_POST_CLEAR: begin
