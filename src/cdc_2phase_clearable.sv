@@ -22,11 +22,11 @@
 ///
 /// In contrast to the cdc_2phase version without clear signal, this module
 /// supports one-sided warm resets (asynchronously and synchronously). The way
-/// this is implemented is described in more detail in the cdc_clear_sync
+/// this is implemented is described in more detail in the cdc_reset_ctrlr
 /// module. To summarize a synchronous clear request i.e. src/dst_clear_i will
 /// cause the respective other clock domain to reset as well without introducing
 /// any spurious transactions. This is acomplished by an internal module
-/// (cdc_clear_sync) the starts a reset sequence on both sides of the CDC in
+/// (cdc_reset_ctrlr) the starts a reset sequence on both sides of the CDC in
 /// lock-step that first isolates the CDC from the outside world and then resets
 /// it. The reset sequencer provides the following behavior:
 /// 1. There are no spurious invalid or duplicated transactions regardless how
@@ -42,7 +42,7 @@
 /// 4. If the parameter CLEAR_ON_ASYNC_RESET is enabled, the same behavior as
 ///    above is also valid for asynchronous resets on either side. However, this
 ///    increases the minimum number of synchronization stages (SYNC_STAGES
-///    parameter) from 2 to 3 (read the cdc_clear_sync header to figure out
+///    parameter) from 2 to 3 (read the cdc_reset_ctrlr header to figure out
 ///    why).
 ///
 ///
@@ -136,10 +136,10 @@ module cdc_2phase_clearable #(
   assign dst_valid_o = s_dst_valid & !s_dst_isolate_req;
 
   // Synchronize the clear and reset signaling in both directions (see header of
-  // the cdc_clear_sync module for more details.)
-  cdc_clear_sync #(
+  // the cdc_reset_ctrlr module for more details.)
+  cdc_reset_ctrlr #(
     .SYNC_STAGES(SYNC_STAGES-1)
-  ) i_clear_sync (
+  ) i_cdc_reset_ctrlr (
     .a_clk_i         ( src_clk_i           ),
     .a_rst_ni        ( src_rst_ni          ),
     .a_clear_i       ( src_clear_i         ),

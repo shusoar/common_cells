@@ -360,10 +360,10 @@ module cdc_2phase_clearable_tb_delay_injector #(
   assign dst_valid_o = s_dst_valid & !s_dst_clear;
 
   // Synchronize the clear and reset signaling in both directions (see header of
-  // the cdc_clear_sync module for more details.)
-  cdc_clear_sync #(
+  // the cdc_reset_ctrlr module for more details.)
+  cdc_reset_ctrlr #(
     .SYNC_STAGES(SYNC_STAGES-1)
-  ) i_clear_sync (
+  ) i_cdc_reset_ctrlr (
     .a_clk_i   ( src_clk_i   ),
     .a_rst_ni  ( src_rst_ni  ),
     .a_clear_i ( src_clear_i ),

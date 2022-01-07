@@ -15,7 +15,7 @@
 //
 // Contains common defintions for the CDC Clear Synchronization Circuitry
 
-package cdc_clear_sync_pkg;
+package cdc_reset_ctrlr_pkg;
 
 typedef enum logic[1:0] {
   CLEAR_PHASE_IDLE,
@@ -24,4 +24,4 @@ typedef enum logic[1:0] {
   CLEAR_PHASE_POST_CLEAR
 } clear_seq_phase_e;
 
-endpackage : cdc_clear_sync_pkg
+endpackage : cdc_reset_ctrlr_pkg

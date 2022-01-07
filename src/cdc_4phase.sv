@@ -28,7 +28,7 @@
 /// the RESET_MSG within its' asynchronous reset state. This can be usefull if
 /// we need to transmit a message to the other side of the CDC immediately
 /// during an async reset even if there is no clock available. This mode is
-/// required for proper functionality of the cdc_clear_sync module.
+/// required for proper functionality of the cdc_reset_ctrlr module.
 ///
 /// CONSTRAINT: Requires max_delay of min_period(src_clk_i, dst_clk_i) through
 /// the paths async_req, async_ack, async_data.

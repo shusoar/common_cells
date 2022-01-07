@@ -56,10 +56,10 @@ sources:
   - src/sync.sv
   - src/sync_wedge.sv
   - src/unread.sv
-  - src/cdc_clear_sync_pkg.sv
+  - src/cdc_reset_ctrlr_pkg.sv
   # Level 1
   - src/cdc_4phase.sv
-  - src/cdc_clear_sync.sv
+  - src/cdc_reset_ctrlr.sv
   - src/cdc_2phase_clearable.sv
   - src/addr_decode.sv
   - src/cb_filter.sv

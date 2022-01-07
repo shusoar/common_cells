@@ -52,7 +52,7 @@
 // deasserted. This sequence ensures that no transactions can arrive to the CDC
 // while the state is cleared. Now the important part is, that those four phases
 // (asser isolate, assert clear, deassert clear, deassert isolate) are mirrored
-// on the other side ('b') in lock-step. The cdc_clear_sync module uses a
+// on the other side ('b') in lock-step. The cdc_reset_ctrlr module uses a
 // dedicated 4-phase handshaking CDC to transmit the current phase of the clear
 // sequence to the other domain. We use a 4-phase rather than a 2-phase CDC to
 // avoid the issues of one-sided async reset that might trigger spurious
@@ -106,8 +106,8 @@
 // SPDX-License-Identifier: SHL-0.51
 // -----------------------------------------------------------------------------
 
-module cdc_clear_sync
-  import cdc_clear_sync_pkg::*;
+module cdc_reset_ctrlr
+  import cdc_reset_ctrlr_pkg::*;
  #(
   /// The number of synchronization stages to use for the
   //clear signal request/acknowledge. Must be less or
@@ -144,10 +144,10 @@ module cdc_clear_sync
   (* dont_touch = "true" *)
   clear_seq_phase_e async_b2a_next_phase;
 
-  cdc_clear_sync_half #(
+  cdc_reset_ctrlr_half #(
     .SYNC_STAGES          ( SYNC_STAGES          ),
     .CLEAR_ON_ASYNC_RESET ( CLEAR_ON_ASYNC_RESET )
-  ) i_clear_sync_half_a (
+  ) i_cdc_reset_ctrlr_half_a (
     .clk_i              ( a_clk_i              ),
     .rst_ni             ( a_rst_ni             ),
     .clear_i            ( a_clear_i            ),
@@ -163,10 +163,10 @@ module cdc_clear_sync
     (* async *) .async_ack_o        ( async_a2b_ack        )
   );
 
-    cdc_clear_sync_half #(
+    cdc_reset_ctrlr_half #(
     .SYNC_STAGES          ( SYNC_STAGES          ),
     .CLEAR_ON_ASYNC_RESET ( CLEAR_ON_ASYNC_RESET )
-  ) i_clear_sync_half_b (
+  ) i_cdc_reset_ctrlr_half_b (
     .clk_i              ( b_clk_i              ),
     .rst_ni             ( b_rst_ni             ),
     .clear_i            ( b_clear_i            ),
@@ -184,8 +184,8 @@ module cdc_clear_sync
 endmodule
 
 
-module cdc_clear_sync_half
-  import cdc_clear_sync_pkg::*;
+module cdc_reset_ctrlr_half
+  import cdc_reset_ctrlr_pkg::*;
 #(
   /// The number of synchronization stages to use for the
   //clear signal request/acknowledge. Must be less or
@@ -221,7 +221,7 @@ module cdc_clear_sync_half
   // `initiator_clear_out` signals are asserted appropriately.
 
   // The receiver part receives the state transitions from the other clock
-  // domain (initiator part of the `cdc_clear_sync_half` instance in the other
+  // domain (initiator part of the `cdc_reset_ctrlr_half` instance in the other
   // clock domain) and asserts the `receiver_isolate_out` and
   // `receiver_clear_out` appropriately (considering the `isolate_ack_i`
   // signal).
@@ -526,4 +526,4 @@ module cdc_clear_sync_half
   assign clear_o = initiator_clear_out || receiver_clear_out;
   assign isolate_o = initiator_isolate_out || receiver_isolate_out;
 
-endmodule : cdc_clear_sync_half
+endmodule : cdc_reset_ctrlr_half
